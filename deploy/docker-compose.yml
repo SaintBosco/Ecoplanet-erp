@@ -1,0 +1,42 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: carbonerp
+      POSTGRES_USER: carbonerp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Not published to the host — only reachable from other containers on this network.
+
+  backend:
+    build: ../backend
+    restart: unless-stopped
+    environment:
+      PORT: 3001
+      DATABASE_URL: postgresql://carbonerp:${POSTGRES_PASSWORD}@postgres:5432/carbonerp?schema=public
+    depends_on:
+      - postgres
+    # Not published to the host either — only Caddy talks to it.
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
+  caddy_data:
+
+# NOTE: no redis service here. `ioredis`/`bullmq` are declared in
+# backend/package.json but confirmed unused (grep against server.js came up
+# empty) — see ROADMAP.md. Add a redis service back if that ever gets wired
+# in for real background jobs.

@@ -1,0 +1,5 @@
+# Replace with the real domain once registered/pointed at this VPS's IP.
+# Caddy handles Let's Encrypt TLS issuance/renewal automatically for it.
+erp.REPLACE-ME.example.com {
+    reverse_proxy backend:3001
+}
