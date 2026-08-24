@@ -229,3 +229,93 @@ ever produce an all-time statement, not a per-period one.
 
 **Not yet reviewed:** BVA module, manufacturing cost rollup, tax/GST routes,
 payroll-to-GL integration. Flag if/when these need the same pass.
+
+
+## 8. Verification log -- how to confirm this build is what it claims to be
+
+Repo: https://github.com/SaintBosco/carbon-erp (remote `origin`, pushed and
+current as of commit `403a337`). Anyone or any agent with access can clone
+this directly instead of trusting a description of it.
+
+This section is a commit-by-commit account of every change made in this
+audit, with the exact commands used to verify each one and the actual
+result observed -- not just a claim that it was tested. Re-run any of these
+against `backend/` to independently confirm.
+
+### c8c6c09 -- Initial import
+Source pulled from the live `Carbon ERP-win32-x64` build, excluding
+`node_modules/`, `backend/data/` (live + backup JSON data), `.env`,
+`server.log`, `scratch.js`. Not independently "verifiable" beyond diffing
+against that build folder -- it is a copy, not a generated artifact.
+
+### cb0066a, 5c08140 -- Roadmap + deploy scaffolding
+Documentation and `deploy/docker-compose.yml` / `deploy/Caddyfile` /
+`backend/Dockerfile`. Not yet stood up against a real VPS -- scaffolding
+only, unverified against actual infrastructure (see Section 3, open items).
+
+### 0dd0259 -- Rate limiting + CORS allowlist
+Verified locally with the server running on port 3099:
+```
+POST /api/auth/login x12 rapid requests with bad credentials
+  -> attempts 1-10: 401, attempts 11-12: 429
+GET any endpoint with Origin: https://evil.example.com
+  -> no Access-Control-Allow-Origin header returned
+GET any endpoint with Origin: http://localhost:3001
+  -> Access-Control-Allow-Origin: http://localhost:3001 returned
+```
+
+### 166bd0b -- Application logic audit (documentation only, no code change)
+Findings listed in Section 7. Verify the underlying claims yourself by
+reading the referenced line numbers in `backend/server.js` directly --
+they are cited specifically so this is checkable, not just asserted.
+
+### 403a337 -- Files-route auth/traversal fix + cash-flow fixes
+Three separate fixes, each verified against a running instance (fresh
+`backend/data/` each time, real seeded accounts, not mocked):
+
+**1. `/api/files/:folder/:filename` now requires auth + blocks traversal:**
+```
+GET /api/files/settings/x.png with no Authorization header -> 401
+GET /api/files/settings/..%2f..%2f..%2f.env with a valid token -> 400
+```
+
+**2. Cash-flow sign errors (income/fixed/loan/equity, not just income):**
+Posted two real journal entries via the API and diffed the reported
+`operating` figure before/after:
+```
+Baseline GET /api/accounting/cash-flow -> operating = -475967.5
+Posted JE: Dr Cash 100 / Cr Sales Revenue 100 (a1/a6), approved
+Posted JE: Dr COGS 60 / Cr Cash 60 (a7/a1), approved
+GET /api/accounting/cash-flow again -> operating = -475927.5
+Delta = +40, matches expected (100 revenue - 60 expense) exactly.
+```
+(The large negative baseline is from realistic seeded historical
+transaction volume in `seed-ecoplanet.js`, not a bug -- confirmed by using
+a before/after delta rather than trusting the absolute figure.)
+
+**3. Cash-flow was including unposted entries when no `?period=` given:**
+```
+Baseline operating = -475967.5
+Created a draft JE for 99999 (Dr Cash / Cr Sales Revenue), left unapproved
+GET /api/accounting/cash-flow again (no period param) -> operating unchanged
+Confirms draft entries no longer leak into the total.
+```
+
+### What is NOT yet verified
+- Nothing has been tested against a real Postgres instance -- all testing
+  above ran against the JsonDB flat-file store (Phase 1 migration is still
+  incomplete, see Section 1).
+- No test covers BVA, manufacturing, tax/GST, or payroll-to-GL logic --
+  audit scope so far was the core ledger only (Section 7).
+- The segregation-of-duties gap (Section 7) is documented but intentionally
+  NOT fixed -- it needs a design decision from Luca first (block
+  self-approval outright vs. require a specific role vs. both).
+- Deploy scaffolding (`deploy/`) has never been run against real
+  infrastructure.
+
+### For the next agent picking this up
+Read Sections 1-7 first for context, then this section to see exactly what
+has and has not been independently confirmed. Don't assume anything marked
+"resolved" above the line separating it from "what is NOT yet verified" --
+re-run the commands in this section against your own local instance before
+building on top of any of it, same as was done here.
