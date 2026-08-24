@@ -16,6 +16,7 @@ services:
     environment:
       PORT: 3001
       DATABASE_URL: postgresql://carbonerp:${POSTGRES_PASSWORD}@postgres:5432/carbonerp?schema=public
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
     depends_on:
       - postgres
     # Not published to the host either — only Caddy talks to it.
@@ -40,3 +41,4 @@ volumes:
 # backend/package.json but confirmed unused (grep against server.js came up
 # empty) — see ROADMAP.md. Add a redis service back if that ever gets wired
 # in for real background jobs.
+

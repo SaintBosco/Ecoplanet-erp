@@ -64,24 +64,34 @@ Owner: Luca. Read this fully before changing anything.
   background jobs get built for real.
 - ~~`better-sqlite3` in use?~~ No — confirmed dead the same way.
 
-**Still open — need an answer before Phase 2 finishes:**
+**Resolved -- 2026-08-24, this session:**
+- **Rate limiting on `/api/auth/login`**: added via `express-rate-limit`
+  (10 attempts / 15 min / IP, 429 with a clear error past that). Tested
+  directly -- the 11th/12th rapid attempt returned 429.
+- **Wildcard CORS**: replaced with an `ALLOWED_ORIGINS` env-driven allowlist
+  (comma-separated, defaults to `http://localhost:3001` for local dev).
+  Tested directly -- a disallowed `Origin` gets no
+  `Access-Control-Allow-Origin` header back; an allowed one gets it
+  reflected correctly, with `Vary: Origin` set. Wired into
+  `deploy/docker-compose.yml` and both `.env.example` files. Still needs
+  the real domain added once chosen (item 2 below) -- only localhost is
+  allowlisted right now.
+- Further auth hardening (account lockout, "log out everywhere" on password
+  change) intentionally not done -- scope was the two findings above only.
+  Revisit if Luca wants more before going live.
+
+**Still open -- need an answer before Phase 2 finishes:**
 1. **VPS provider and sizing.** "A new cloud VPS" was chosen but not which
-   provider or spec. Doesn't block writing the deploy scaffolding (done,
-   §5), but blocks actually standing it up.
+   provider or spec. Does not block writing the deploy scaffolding (done,
+   Section 5), but blocks actually standing it up.
 2. **Domain name.** `deploy/Caddyfile` has a placeholder
-   (`erp.REPLACE-ME.example.com`) — needs a real registered domain pointed at
-   the VPS's IP before Caddy can issue a TLS cert.
-3. **Auth hardening scope for public exposure.** The underlying crypto is
-   fine (see §1), but going from localhost-only to public internet means at
-   minimum: rate-limit `/api/auth/login`, and replace the wildcard CORS
-   header with the real app origin(s). Confirm whether that's sufficient or
-   whether Luca wants more (e.g. account lockout after N failed attempts,
-   session revocation on password change — right now logout only deletes one
-   session's token, there's no "log out everywhere").
-4. **Dependency cleanup.** Drop the 6 dead dependencies from
+   (`erp.REPLACE-ME.example.com`) -- needs a real registered domain pointed at
+   the VPS's IP before Caddy can issue a TLS cert, and needs to be added to
+   `ALLOWED_ORIGINS` (both `.env.example` files) once chosen.
+3. **Dependency cleanup.** Drop the 6 dead dependencies from
    `backend/package.json`, or is any of them slated for real use soon (e.g.
-   `jsonwebtoken` if auth gets redone as real JWT)? Don't remove silently —
-   ask first, since it's a design choice, not just cleanup.
+   `jsonwebtoken` if auth gets redone as real JWT)? Do not remove silently --
+   ask first, since it is a design choice, not just cleanup.
 
 ## 4. Phased plan
 
@@ -114,8 +124,9 @@ Owner: Luca. Read this fully before changing anything.
 - [ ] Register/point a real domain, swap it into `deploy/Caddyfile`.
 - [ ] Copy `deploy/.env.example` → `deploy/.env` on the VPS with a real
   `POSTGRES_PASSWORD`, `docker compose up -d`.
-- [ ] Security hardening for public exposure (§3, item 3): rate-limit login,
-  restrict CORS from `*` to the real origin(s).
+- [x] Security hardening for public exposure: rate-limit login (done — see §3),
+  restrict CORS from `*` to `ALLOWED_ORIGINS` (done — see §3, still needs the
+  real domain added once chosen).
 - [ ] Repoint `desktop/nativefier.json`'s `targetUrl` from
   `http://localhost:3001/...` to the real `https://` domain, rebuild the
   Nativefier shell, and re-distribute to staff. Once staff hit the central
