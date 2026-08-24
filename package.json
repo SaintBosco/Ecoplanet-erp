@@ -1,0 +1,16 @@
+{
+  "name": "carbon-erp-local",
+  "version": "1.0.0",
+  "description": "Carbon ERP Local Server Launcher",
+  "main": "launcher.js",
+  "scripts": {
+    "start": "node launcher.js",
+    "backend": "node backend/server.js",
+    "dev": "concurrently \"npm run backend\" \"wait-on http://localhost:3001/health && electron .\""
+  },
+  "dependencies": {
+    "electron": "^25.7.0",
+    "wait-on": "^7.2.0",
+    "concurrently": "^8.2.2"
+  }
+}
