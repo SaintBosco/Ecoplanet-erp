@@ -1124,12 +1124,9 @@ app.get('/api/accounting/balance-sheet', auth, (req, res) => {
 // --- Cash Flow Statement ---
 app.get('/api/accounting/cash-flow', auth, (req, res) => {
   const period = req.query.period;
-  let lines = db.findAll('journal_lines');
-  if (period) {
-    const entries = (db.data.journal_entries || []).filter(e => e.period === period && e.status === 'posted');
-    const entryIds = new Set(entries.map(e => e.id));
-    lines = lines.filter(l => entryIds.has(l.entryId));
-  }
+  const cfEntries = (db.data.journal_entries || []).filter(e => e.status === 'posted' && (!period || e.period === period));
+  const cfEntryIds = new Set(cfEntries.map(e => e.id));
+  let lines = db.findAll('journal_lines').filter(l => cfEntryIds.has(l.entryId));
   const accounts = db.findAll('accounts');
   const cashAccts = accounts.filter(a => a.subtype === 'bank').map(a => a.id);
   let operating = 0, investing = 0, financing = 0;
@@ -1138,11 +1135,16 @@ app.get('/api/accounting/cash-flow', auth, (req, res) => {
     const acct = accounts.find(a => a.id === l.accountId);
     if (!acct) return;
     const amt = (l.debit || 0) - (l.credit || 0);
-    if (acct.type === 'income') { operating += amt; operatingItems.push({ description: l.description, amount: amt }); }
+    // Sign convention: subtract the natural debit-credit movement so a
+    // credit-normal increase (income/loan/equity) reads as a positive cash
+    // inflow and a debit-normal increase (expense/fixed-asset purchase)
+    // reads as a negative cash outflow - matches income-statement's
+    // "s - a.balance" convention used elsewhere in this file.
+    if (acct.type === 'income') { operating -= amt; operatingItems.push({ description: l.description, amount: -amt }); }
     else if (acct.type === 'expense') { operating -= amt; operatingItems.push({ description: l.description, amount: -amt }); }
-    else if (acct.subtype === 'fixed') { investing += amt; investingItems.push({ description: l.description, amount: amt }); }
-    else if (acct.subtype === 'loan') { financing += amt; financingItems.push({ description: l.description, amount: amt }); }
-    else if (acct.type === 'equity') { financing += amt; financingItems.push({ description: l.description, amount: amt }); }
+    else if (acct.subtype === 'fixed') { investing -= amt; investingItems.push({ description: l.description, amount: -amt }); }
+    else if (acct.subtype === 'loan') { financing -= amt; financingItems.push({ description: l.description, amount: -amt }); }
+    else if (acct.type === 'equity') { financing -= amt; financingItems.push({ description: l.description, amount: -amt }); }
   });
   const netCashFlow = operating + investing + financing;
   res.json({ operating, investing, financing, netCashFlow, operatingItems, investingItems, financingItems, period: period || 'All' });
@@ -2299,8 +2301,10 @@ app.post('/api/upload/logo', auth, upload.single('file'), (req, res) => {
   res.json({ url });
 });
 
-app.get('/api/files/:folder/:filename', (req, res) => {
-  const filePath = path.join(ATTACH_DIR, req.params.folder, req.params.filename);
+app.get('/api/files/:folder/:filename', auth, (req, res) => {
+  const resolvedRoot = path.resolve(ATTACH_DIR) + path.sep;
+  const filePath = path.resolve(path.join(ATTACH_DIR, req.params.folder, req.params.filename));
+  if (!filePath.startsWith(resolvedRoot)) return res.status(400).json({ error: 'Invalid path' });
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Not found' });
   res.sendFile(filePath);
 });
