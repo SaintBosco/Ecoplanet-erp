@@ -173,3 +173,59 @@ Owner: Luca. Read this fully before changing anything.
 - If in doubt about scope for any Phase 3 item, it's lower priority than
   anything in Phase 0/1/2 — don't let packaging polish block the migration
   or the deployment.
+
+## 7. Application logic findings (audit, 2026-08-24)
+
+Full pass through all 213 routes in `server.js` plus the auth/authorization
+layer. Verified by reading code directly, not by inference from route names.
+
+**Authorization gaps (Phase 0 severity - fix before public launch):**
+- No segregation of duties on journal entries: same user can create AND
+  approve (`POST /journal-entries`, `PUT /journal-entries/:id/approve` both
+  only require `auth`, no creator != approver check, no role gate).
+- The roles/permissions data model (`/api/security/roles`, `/permissions`,
+  `/user-roles`) is not enforced anywhere. Only real check in the app is
+  `requireAdmin` (flat `role === 'admin'`), applied to 10 of 213 routes.
+  Approving JEs, closing/reopening fiscal periods, managing roles - none of
+  it is role-gated.
+- `GET /api/files/:folder/:filename` (line ~2302) has NO `auth` middleware -
+  the only data route in the whole app missing it (verified via full grep).
+  Serves uploaded attachments/documents. Filenames are unguessable (Date.now
+  + 8 random bytes) but zero auth check regardless.
+- `PUT /fiscal-periods/:id/reopen` has no role check and is not audit-logged
+  (unlike JE create/approve, which do call `auditLog`).
+
+**Bug - inverted sign in cash flow statement:**
+`GET /api/accounting/cash-flow` (server.js ~L1141-1142): expense branch does
+`operating -= amt` (correct), income branch does `operating += amt` (wrong -
+should be `-=` to match the sign-flip convention used everywhere else, e.g.
+income-statement's `s - a.balance`). Revenue currently REDUCES reported
+operating cash flow instead of increasing it. One-line fix, verify against a
+real posted entry first.
+
+**Methodology gap - IAS 7 cash flow ignores periods:**
+`GET /api/accounting/ifrs/cash-flow` (the properly-built indirect-method one,
+labeled `standard: 'IAS 7'`) computes working-capital changes from CURRENT
+absolute account balances, not period-over-period deltas, and takes no
+`?period=` param at all (unlike balance-sheet/income-statement). Can only
+ever produce an all-time statement, not a per-period one.
+
+**Smaller items:**
+- `reject` on a journal entry doesn't check `status === 'posted'` first
+  (unlike `approve`/`delete`, which do) - can reject an already-posted entry
+  without reversing the account balance updates `approve` already applied.
+- `auth` middleware accepts the bearer token via `?token=` query param as a
+  fallback, not just the `Authorization` header - will land in Caddy access
+  logs once this is public.
+
+**What's solid (verified, not just assumed):**
+- Debit=credit validated both at JE creation and independently recomputed at
+  period-close from actual posted lines.
+- Period-close correctly blocks on any draft/pending entries in the period
+  first.
+- Sign conventions across trial balance, income statement, and balance sheet
+  are internally consistent and correct.
+- Auth crypto (pbkdf2 + per-user salt, 256-bit random session tokens) sound.
+
+**Not yet reviewed:** BVA module, manufacturing cost rollup, tax/GST routes,
+payroll-to-GL integration. Flag if/when these need the same pass.
