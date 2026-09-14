@@ -40,10 +40,12 @@ jobs:
           PORT=3101 npm start &
           server_pid=$!
           trap "kill $server_pid" EXIT
-          for _ in $(seq 1 30); do
+          attempts=0
+          while [ "$attempts" -lt 30 ]; do
             if curl -fsS http://127.0.0.1:3101/health; then
               exit 0
             fi
+            attempts=$((attempts + 1))
             sleep 1
           done
           echo "Backend did not become healthy in time" >&2
