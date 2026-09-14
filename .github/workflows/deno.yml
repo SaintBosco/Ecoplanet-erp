@@ -40,7 +40,7 @@ jobs:
           PORT=3101 npm start &
           server_pid=$!
           trap "kill $server_pid" EXIT
-          for _ in {1..30}; do
+          for _ in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:3101/health; then
               exit 0
             fi
