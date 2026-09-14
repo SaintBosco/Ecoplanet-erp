@@ -1,12 +1,6 @@
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
+# This workflow installs backend dependencies and runs a backend smoke test.
 
-# This workflow will install Deno then run `deno lint` and `deno test`.
-# For more information see: https://github.com/denoland/setup-deno
-
-name: Deno
+name: Backend test
 
 on:
   push:
@@ -25,18 +19,40 @@ jobs:
       - name: Setup repo
         uses: actions/checkout@v4
 
-      - name: Setup Deno
-        # uses: denoland/setup-deno@v1
-        uses: denoland/setup-deno@61fe2df320078202e33d7d5ad347e7dcfa0e8f31  # v1.1.2
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          deno-version: v1.x
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
 
-      # Uncomment this step to verify the use of 'deno fmt' on each commit.
-      # - name: Verify formatting
-      #   run: deno fmt --check
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
 
-      - name: Run linter
-        run: deno lint
+      - name: Verify backend syntax
+        working-directory: backend
+        run: node --check server.js
 
-      - name: Run tests
-        run: deno test -A
+      - name: Smoke test backend health endpoint
+        working-directory: backend
+        run: |
+          PORT=3101 npm start &
+          server_pid=$!
+          trap "kill $server_pid 2>/dev/null || true" EXIT
+          healthy=false
+          attempts=0
+          while [ "$attempts" -lt 30 ]; do
+            if curl -fsS http://127.0.0.1:3101/health; then
+              healthy=true
+              break
+            fi
+            attempts=$((attempts + 1))
+            sleep 1
+          done
+          kill "$server_pid" 2>/dev/null || true
+          wait "$server_pid" 2>/dev/null || true
+          if [ "$healthy" != "true" ]; then
+            echo "Backend did not become healthy in time" >&2
+            exit 1
+          fi
